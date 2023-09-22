@@ -1,0 +1,461 @@
+---
+title: 'Classification Part 3 '
+output: html_document
+date: "2023-08-13"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+setwd('/Users/salman/Desktop/')
+df <- read_csv('hong_kong_cleaned.csv')
+```
+Before building the model let us create a training and data set.
+
+```{r}
+set.seed(979)
+indexes <-sample(seq(1,nrow(df)), 0.6*nrow(df))
+training <- df[indexes,]
+validation <- df[-indexes,]
+```
+
+
+We have to predict instant booking which lets customers book an aprtment without
+sending a request to the host first. This means there is some level of trust and
+convenience that is established.
+
+We have to choose the variables to be used in the model. The decision tree models already select which feature are most relevant so we don't have to work
+too much here. 
+First some variables have to be converted from text to categories for the model to be able to use them.
+
+```{r}
+cols <- c("host_response_time", "host_neighbourhood", "host_verifications",
+          "room_type", "bathroom_type", "property_type")
+
+df[cols] <- lapply(df[cols], factor)
+```
+
+The variables we choose for the model are the following : 
+
+host related variables as they could indicate the reliability of the host.
+
+'room_type', 'beds', 'price' contains information on the characteristics of the property
+'availability_30','availability_60','availability_90' can indicate listing demand or popularity.
+'got_reviewed' and review scores show reputation and guest experience.
+host_listings count also show experience
+
+```{r}
+library(rpart)
+library(rpart.plot)
+
+
+
+cl_tree  <- rpart(instant_bookable ~
+                    host_response_time + host_response_rate + host_acceptance_rate + host_is_superhost +  host_has_profile_pic + host_identity_verified +
+                  
+                  room_type + bathroom_nb + beds + price +
+                  
+                  availability_30 + availability_60 + availability_90 +
+                  availability_365 +
+                  
+                  number_of_reviews + 
+                  calculated_host_listings_count_entire_homes +
+                  calculated_host_listings_count_private_rooms +
+                  calculated_host_listings_count_shared_rooms,
+                  
+               data = training, 
+               method = "class")
+
+```
+
+```{r}
+prp(cl_tree)
+```
+```{r}
+library(caret)
+
+pred_t <- predict(cl_tree, training, type="class")
+pred_v <- predict(cl_tree, validation, type="class")
+
+confusion_t <- table(pred_t, training$instant_bookable)
+
+confusionMatrix(confusion_t)
+```
+```{r}
+confusion_v <- table(pred_v, validation$instant_bookable)
+
+confusionMatrix(confusion_v)
+```
+The model has high accuracy of 87% without optimizing the complexity parameter.
+Overfitting is already low by comparing with the accuracy of 91% of the training set.
+
+## B.
+
+Now let try and find the optimal complexity parameter.
+
+```{r}
+cv.ct <- rpart(instant_bookable ~
+                    host_response_time + host_response_rate + host_acceptance_rate + host_is_superhost + host_verifications + host_has_profile_pic + host_identity_verified +
+                  
+                  room_type + bathroom_nb + bathroom_type + beds + price +
+                  
+                  availability_30 + availability_60 + availability_90 +
+                  availability_365 +
+                  
+                  number_of_reviews + 
+                  calculated_host_listings_count_entire_homes +
+                  calculated_host_listings_count_private_rooms +
+                  calculated_host_listings_count_shared_rooms, 
+               data = training, 
+               method = "class", minsplit = 5 , cp=0.00001, xval = 10)
+
+printcp(cv.ct)
+```
+
+The optimal complexity parameter to reduce error is 0.0223881
+
+
+## C.
+
+```{r}
+cl_tree  <- rpart(instant_bookable ~
+                    host_response_time + host_response_rate + host_acceptance_rate + host_is_superhost + host_has_profile_pic + host_identity_verified +
+                  
+                  room_type + bathroom_nb + beds + price +
+                  
+                  availability_30 + availability_60 + availability_90 +
+                  availability_365 +
+                  
+                  number_of_reviews + 
+                  calculated_host_listings_count_entire_homes +
+                  calculated_host_listings_count_private_rooms +
+                  calculated_host_listings_count_shared_rooms,
+                  
+               data = training, 
+               method = "class", cp = 0.0223881)
+
+rpart.plot(cl_tree, type =2, extra =1)
+```
+Let us compare the confusion matrix on both the training and testing dataset
+to evaluate the model.
+
+```{r}
+
+pred_t <- predict(cl_tree, training, type="class")
+pred_v <- predict(cl_tree, validation, type="class")
+
+confusion_t <- table(pred_t, training$instant_bookable)
+
+confusionMatrix(confusion_t)
+```
+
+
+
+```{r}
+confusion_v <- table(pred_v, validation$instant_bookable)
+confusionMatrix(confusion_v)
+```
+The model's accuracy on the training set is 91% while on the validation set
+it is 87.7% it is almost the same as the first tree.
+The first tree uses a combination of availability and number of reviews and addition to price and host acceptance rate.
+WHile the second tree uses almost exclusively the host listings count by room type after the root node. This second tree also has less depth compared to the first one meaning it can be generalized better. 
+We can get the same accuracy through multiple ways of splitting but we would take the second tree as predictor before of its depth.
+
+The sensitivy is very high at 0.93 while the specificity is lower at 0.61. Since the model put the positive class as FALSE, this means that the model is much better at identifying an airbnbn that is not instantly bookable.
+
+One more model that could be tried would be to add property_type which we chose to remove because it had too many categories.
+
+```{r}
+cv.ct <- rpart(instant_bookable ~
+                    host_response_time + host_response_rate + host_acceptance_rate + host_is_superhost + host_verifications + host_has_profile_pic + host_identity_verified +
+                  
+                  room_type + bathroom_nb + bathroom_type + beds + price +
+                 property_type +
+                  
+                  availability_30 + availability_60 + availability_90 +
+                  availability_365 +
+                  
+                  number_of_reviews + 
+                  calculated_host_listings_count_entire_homes +
+                  calculated_host_listings_count_private_rooms +
+                  calculated_host_listings_count_shared_rooms + got_reviewed, 
+               data = training, 
+               method = "class", minsplit = 5 , cp=0.00001, xval = 10)
+
+printcp(cv.ct)
+```
+
+```{r}
+cv.ct <- rpart(instant_bookable ~
+                    host_response_time + host_response_rate + host_acceptance_rate + host_is_superhost + host_verifications + host_has_profile_pic + host_identity_verified +
+                  
+                  room_type + bathroom_nb + bathroom_type + beds + price +
+                 property_type +
+                  
+                  availability_30 + availability_60 + availability_90 +
+                  availability_365 +
+                  
+                  number_of_reviews + 
+                  calculated_host_listings_count_entire_homes +
+                  calculated_host_listings_count_private_rooms +
+                  calculated_host_listings_count_shared_rooms + got_reviewed, 
+               data = training, 
+               method = "class", cp=0.0071429)
+
+pred_v <- predict(cl_tree, validation, type="class")
+confusion_v <- table(pred_v, validation$instant_bookable)
+confusionMatrix(confusion_v)
+
+```
+
+```{r}
+rpart.plot(cl_tree, type =2, extra =1)
+```
+The tree and accuracy are the same the variable did not have an impact.
+
+## D.
+
+In this part we tried building a classifcation to predict if an apartment would be instantly bookable. To do that we first chose the most relevant variables for this prediction. Then we built a first classification tree and testes its accuracy and got 87% with little overfitting. For all trees the root node was host acceptance rate close to 10)% which is coherent with the fact that being booked instantly means an acceptance rate of 100%.
+
+Then we tried optimizing the complexity parameter and got a new model with the same results on accuracy except with less depth and using very different splitting variables focusing on listing counts.
+Finally we tried adding property_type which did not have an impact on the tree.
+By looking at sensitivity and specificity we saw that the model is very good at predicting when a property will not be instantly bookable but it is much less accurate at predicting when it is instantly bookable. This stems from the fact that the host_acceptance rate already categorizes most FALSE accurately as we can see in the tree above.
+
+
+# Step IV: Clustering
+
+## In this part we did III. before II. since the information from the former is 
+used to define the latter.
+
+### I.
+
+First let us take care of outliers we will remove the values above the 99% quantile : 
+
+```{r}
+library(tidyverse)
+df2 <- filter(df, df$price < quantile(df$price, 0.99))
+df2 <- filter(df2, df2$minimum_nights < quantile(df$minimum_nights, 0.99))
+df2 <- filter(df2, df2$beds < quantile(df$beds, 0.99))
+df2 <- filter(df2, df2$number_of_reviews < quantile(df$number_of_reviews, 0.99))
+df2 <- filter(df2, df2$host_listings_count < quantile(df$host_listings_count, 0.99))
+df2 <- filter(df2, df2$reviews_per_month < quantile(df$reviews_per_month, 0.99))
+
+```
+
+
+Clustering will use numerical variables we take the relevant ones for now.
+
+```{r}
+numeric <- dplyr::select(df2, c('host_response_rate', 'host_acceptance_rate',
+                                'host_listings_count', 'bathroom_nb', 
+                                'beds', 'price', 'minimum_nights',
+                                'maximum_nights', 'availability_30',
+                                'availability_60', 'availability_90', 
+                                'availability_365', 'number_of_reviews',
+                                'review_scores_rating',
+                                "calculated_host_listings_count_entire_homes", 
+                               "calculated_host_listings_count_private_rooms",
+                               "calculated_host_listings_count_shared_rooms", 
+                                "reviews_per_month"))  
+```
+
+
+We choose to use k-means clustering for this data as it will let us identify clusters
+more easily and find different type of properties in Wan Chai. 
+
+Now let us check the correlation between the variables. This will help us reduce the amount of variables for the model too many will make it hard to interprete.
+
+```{r}
+
+corr <- cor(numeric)
+colnames(corr) <- abbreviate(colnames(corr), 6)
+
+M <- corr
+print(round(M, 2))
+```
+First we see that host_listings_count is correlated with availability, calculated_host_listings and host_acceptance_rate so we remove those variables.
+It also has decent correlation with maximum_nights and review_scores_rating.
+Due to the higher amount of varialbes we have we decide to also remove those two variablles. The other variables have less correlation and more predictive power.
+
+Next bathroom_nb is highly correlated with beds we will remove bathroom_nb as beds is more indicative of the type of property.
+
+```{r}
+numeric <- dplyr::select(df2, c('host_response_rate',
+                                'host_listings_count', 
+                                'beds', 'price', 'minimum_nights',
+                                'number_of_reviews',
+                                "reviews_per_month"))
+
+corr <- cor(numeric)
+colnames(corr) <- abbreviate(colnames(corr), 6)
+
+M <- corr
+print(round(M, 2))
+```
+
+All variables have low correlation now so we go to the next step normalize the data and finding the optimal number of clusters.
+We choose the z-score to scale the data.
+
+```{r}
+library(factoextra)
+
+numeric <- lapply(numeric,scale) %>% data.frame()
+
+fviz_nbclust(numeric, kmeans, k.max = 15, method ="wss") 
+ 
+
+```
+
+
+The error stopped going down temporarily at 5 clusters, it could mean that the model is starting to fit noise after 5 clusters.
+We will stick with 4 clusters, it will also make the interpretation easier.
+We build the model and assign to its respective cluster each property
+
+```{r}
+set.seed(235)
+model <- kmeans(numeric, centers = 3, nstart = 100)
+df2$clusters <- model$cluster
+df2$clusters <- as.factor(df2$clusters)
+```
+
+
+### III.
+
+Now let us create visualizations for the clusters to understand what they represent.
+
+```{r}
+library(ggplot2)
+
+ggplot(df2) +
+  geom_boxplot(aes(x=clusters, y = host_response_rate, fill = clusters)) +
+  labs(title="Host response rate by cluster") +
+  scale_x_discrete()
+```
+
+Cluster 3 has a very low response rate compared to the others, all other clusters
+have most of their response rate over 0.95.
+Cluster 1 and 2 have almost all their response rate around 1 except for outliers.
+
+```{r}
+numeric$clusters <- df2$clusters
+```
+
+```{r}
+library(GGally)
+ggpairs(df2, columns = c('beds', 'price', 'minimum_nights'),
+        aes(color = clusters)) +
+  theme_classic() +
+ scale_color_manual(values = c("darkred", "darkblue", "darkgreen"),
+                     labels = c("Cluster 1", "Cluster 2", "Cluster 3"))
+
+```
+
+Here we can see Cluster 1 has high price for most of its properties with some
+on the lower end and also low number of minimum nights meaning it is more 
+oriented towards short stays with high prices.
+
+Cluster 2 has medium to high minimum nights with low prices and low amounts of
+beds. It is geared towards cheap long stays for only one or a few people.
+
+Cluster 3 has average price, low amount of minimum nights and average amount of
+beds. 
+
+
+
+```{r}
+ ggplot(df2, aes(x = host_listings_count, y = reviews_per_month, fill = clusters)) +
+  scale_fill_brewer(palette = "Set1", name = "Clusters") +
+  geom_point(shape = 21, color = "black", size = 3)
+```
+
+From this scatterplot we can clearly see that Cluster 2 has usually the highest amount
+of host listings count. It has half of its apartments that has average host listings
+count around 60 while the other half has very high amount of listings counts around 350.
+Cluster 1 and 3 have a lower amount of host_listings_count with a high density under
+10. 
+
+Cluster 1 has higher number of reviews compared to the other two. 
+
+```{r}
+ ggplot(df2, aes(x = price, fill = clusters)) +
+  geom_histogram() +
+  scale_fill_brewer(palette = "Set1", name = "Clusters") 
+
+```
+```{r}
+ggplot(df2) +
+  geom_boxplot(aes(x=clusters, y = price, fill = clusters)) +
+  labs(title="Price by cluster") +
+  scale_x_discrete()
+```
+
+
+In this boxplot we can clearly see that the three clusters are
+different in  prices. CLuster 2 has the lowest prices around 300 but with
+many outliers that are around 1000. Cluster 1 has most of its prices between
+500 and 1200 with some outliers going the highest around $ 3700.
+
+Finally Cluster 3 has its price distribution close to cluster 1 but with only
+one outlier and its median lower.
+
+
+### II.
+
+In this k-means clustering model first filtered through numerical variables
+then we calculated the correlation between those variables and removed the variables
+that high correlation according to how meaningful it is for information.
+
+Then we removed outliers using the 99% percentile as we've seen from boxplots
+previously that most outliers were very far from the majority of the data.
+
+Then we scaled the data to prepare for clustering.
+
+Finally we chose the number of clusters using the elbow method stopping at an
+anomaly when the error did not go down when the number of clusters went up.
+
+After building the model we built visualizations to get insights about what each cluster represents.
+Here are how we would define and name each cluster according to this :
+
+Cluster 1:  Popular Short Stays
+
+They correspond to high price range with some lower-priced outliers.
+Low number of minimum nights, indicating a focus on short stays.
+Higher number of reviews compared to the other clusters meaning that they are
+well known.
+Lower host listings count, mostly under 10 so owners are not corporate.
+
+Cluster 2: Budget Long-Stay
+
+With low prices, high minimum nights, and low bed counts, this cluster seems geared towards cheaper long-term stays for 1-2 people. Listings are also split between average and high host counts.
+
+Cluster 3: Mid-Market Mixed-Stay
+The moderate price range, average minimum nights and bed counts suggest this cluster is a mix of both short and long stays at medium price points. Lower host counts than Cluster 2.
+
+
+
+
+# Conclusion
+
+First we removed unnecessary columns, identified missing values and used various techniques such as prediction and imputation to clean the data.  This part was particularly difficult since it implied many judgement calls on the each variable and understanding prior to building the models what we would need to make it as easy as possible.
+Then we successfully identified variables with many outliers using boxplots for the next phases, as those can heavily reduce efficiency of the models.
+
+Next  we tried visualizations to get a first understanding of the data. This gave us many insights on different types of property owners such as individuals and management companies. We understood patterns in room types for different strategies for budget travelers or the owners trying large portfolios for investment, higher investment owners going for more average pricings. Finally the boxplots and histograms showed how most pricing are lower than which is not a surprise as most airbnb are rooms for big cities like Hong Kong.
+Finally the Geopsatial mapping of our neighborhood showed the distribution of entire homes on the outskirts while shared rooms were in the district. It also showed different landmarks such as commercial centers, transport and cultural sites.
+
+The first model we built was the multilinear model where we had to make hard choices in choosing the variables. Classic feature selection techniques allowed us find the right variables. The most interesting aspect of this part was how through applying the log function to the price output variable our visualizations showed that linear relationships would appear with predictors. This hinted to the model being more accurate with the log of the price which proved to be true. The final model had a decent accuracy with a margin of error. We had many variables and finding the right pricing is a very difficult task even for marketing experts so we still considered it a success.
+
+Next we built multiple classification models. Again required good intuition to choose the variables. First we tried predicting the availability of a washer by looking at the most similar properties. We believed that this amenity is a strong predictor of the type of owner as it is more common for washers to be in public spaces for renters. We got good prediction results on the testing set indicating a rigorous model.
+The other model used was naive Bayes to predict average review rating. This variable was problematic because most properties did not have reviews. But we used some amenities and other relevant variables to keep for prediction and we obtained model with a decent level of prediction of the outcome.
+
+Two last classification models were built. 
+First a classification tree where we optimized its complexity to get the best result on the validation set. The model was good at predicting when a property will not be instantly bookable but less so at predicting when it is instantly bookable.
+Second a clustering model where we identified three distinct clusters of properties one for expensive short stays another for budget long-stays and a last one for mix market, mix stays. This clustering gives another way of understanding the data.
+
+In conclusion, the greatest challenge of this massive dataset was to find the right variables for the models which required good understand and intuition of what the data shows and what we are trying to achieve. The visualizations and the various techniques to reduce the amount of features were very useful in finding the right direction to achieve this task.
+In the end all our models gave good predictions or important insights on the data and could be useful for any company looking to exploit the rental market in Hong Kong.
+
+
+

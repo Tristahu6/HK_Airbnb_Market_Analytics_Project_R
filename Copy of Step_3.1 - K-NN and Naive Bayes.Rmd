@@ -1,0 +1,311 @@
+---
+title: "Final Project- K-Nearest Neighbors & Naive Bayes"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+**Step III: Classification**
+
+**Part I: K-nearest neighbors**
+
+**A. Using k-nearest neighbors, predict whether a rental in your neighborhood will have some particular amenity, or combination of amenities. Use any set of numerical predictors in order to build this model. You can decide which amenity, or set of amenities, to use as your outcome variable.(Hint: the grepl() function is worth exploring in order to perform this step). Show the code you used to run your model, and the code you used to assess your model.**
+
+```{r}
+library(tidyverse)
+hk2<- read_csv("hong_kong_cleaned.csv")
+```
+
+```{r}
+library(dplyr)
+library(caret)
+```
+
+Creating the binary variables for input variables:
+
+```{r}
+hk3 <- hk2 %>%
+  mutate(has_washer = grepl("Washer", amenities, ignore.case = TRUE))
+```
+
+Data partition:
+
+```{r}
+library(e1071)
+set.seed(42)
+train_size <- floor(0.6 * nrow(hk3))
+train_indices <- sample(nrow(hk3), train_size)
+train.df <- hk3[train_indices, c("minimum_nights", "maximum_nights", "price", "has_washer", "host_listings_count")]
+valid.df <- hk3[-train_indices, c("minimum_nights", "maximum_nights", "bedrooms", "price", "has_washer", "host_listings_count")]
+```
+
+I convert the logical outcome variables to factors:
+```{r}
+train.df$has_washer <- factor(train.df$has_washer, levels = c(FALSE, TRUE), labels = c(0, 1))
+
+valid.df$has_washer <- factor(valid.df$has_washer, levels = c(FALSE, TRUE), labels = c(0, 1))
+```
+
+I will normalize the data:
+```{r}
+library(caret)
+
+norm_values<-preProcess(train.df, method=c("center", "scale"))
+
+train.norm <-predict(norm_values,train.df)
+valid.norm<-predict(norm_values,valid.df)
+
+print(train.norm)
+print(valid.norm)
+
+```
+
+I determine the optimal value for k:
+
+```{r}
+library(class)
+
+predictors <- c("minimum_nights", "maximum_nights", "host_listings_count","price")
+target_variable <- "has_washer"
+
+train_matrix <- data.matrix(train.norm[, predictors])
+valid_matrix <- data.matrix(valid.norm[, predictors])
+train_labels <- train.df[[target_variable]]
+valid_labels <- valid.df[[target_variable]]
+
+k_values <- seq(1, 20, by = 1)
+
+accuracy_values <- numeric(length(k_values))
+
+for (i in seq_along(k_values)) {
+  knn_model <- knn(train_matrix, valid_matrix, train_labels, k = k_values[i])
+  accuracy_values[i] <- mean(knn_model == valid_labels)
+}
+
+plot(k_values, accuracy_values, type = "b", pch = 19, col = "blue",
+     xlab = "Number of Neighbors (k)", ylab = "Accuracy",
+     main = "Accuracy for Different k Values")
+
+optimal_k <- k_values[which.max(accuracy_values)]
+cat("Optimal k:", optimal_k, "\n")
+```
+
+The optimal k value is 9, so I will create the model with this k-value:
+
+```{r}
+optimal_k <- 9
+knn_model <- knn(train_matrix, valid_matrix, train_labels, k = optimal_k)
+```
+
+I Assess the model:
+```{r}
+
+accuracy <- mean(knn_model == valid_labels)
+cat("Accuracy:", accuracy, "\n")
+```
+
+```{r}
+confusion <- table(Actual = valid_labels, Predicted = knn_model)
+print(confusion)
+```
+The Naive rule.
+Our model is 23.6% more accurate than if we used the Naive rule. 
+
+```{r}
+mean(hk3$has_washer)
+```
+
+**B. Write a two-paragraph narrative that describes how you did this. In your narrative, be sure to describe your predictor choices, and mention how you arrived at the particular k value that you used.**
+
+The amenity we decided to predict was “washer”. The numeric variables we decided to use for the model are: minimum_nights, "maximum_nights, price and "host_listings_count”. We figured these variables have predicting power because if the minimum night stay is low then probably the apartment won’t have a washer. However, if the maximum night stay is high, it is probably more likely that the apartment has a washer because the customers are staying more time and probably would need to do laundry. Also, the host_listings_count” is important because listings with high count maybe belong to a big company like a hotel or apart hotel that probably does not include washers in each unit but a shared one in the building. Likewise, a low count means the listings belong to independent hosts who rent their own apartment and probably have a washer inside. 
+
+After normalizing the data  and converting the washer variable into a factor, we determined the optimal value of k by calculating the different accuracy values for different k-values. The resulting plot revealed the optimum k-value is 9. Therefore we run the model with k-9. Finally we assessed the accuracy of the model which turned out to be 0.7245614. The confusion matrix also revealed a bigger proportion of true positives and true negatives. Finally we compared the accuracy of the naïve rule with the accuracy of our model. We calculated the naïve rule by determining the mean of the number of apartments with washer. The naïve rule turned out to give a predictive accuracy of 0.5533708. This means our model is 23.6% more accurate than if we used the naïve rule. 
+
+**Classification, Part II. Naive Bayes**
+
+**A. Using any set of predictors, build a model using the naive Bayes algorithm, with the purpose of predicting host rental ratings. Use review_scores_rating as your response variable, after binning it using an equal frequency binning method. Do not use any of the other review_scores variables as model inputs.**
+
+I will convert amenities into variables
+```{r}
+data<-hk2
+```
+
+
+```{r}
+data2 <- data %>%
+  mutate(has_washer = grepl("Washer", amenities, ignore.case = TRUE),
+         has_wifi = grepl("Wifi", amenities, ignore.case = TRUE),
+         has_air_conditioning = grepl("Air conditioning", amenities, ignore.case = TRUE),
+         has_microwave = grepl("Microwave", amenities, ignore.case = TRUE),
+         has_dishes_silverware = grepl("Dishes and silverware", amenities, ignore.case = TRUE),
+         has_fridge = grepl("Mini fridge", amenities, ignore.case = TRUE),
+         has_hair_dryer = grepl("Hair dryer", amenities, ignore.case = TRUE))
+```
+
+
+First I will convert character variables into factors:
+```{r}
+character <- c("host_response_time","host_verifications",
+               "property_type","room_type", "bathroom_type",
+               "amenities")
+
+
+data2[character] <- lapply(data2[character],factor)
+
+```
+
+I will convert logical outcome variables into factors:
+```{r}
+logical <- c("host_is_superhost","host_has_profile_pic","host_identity_verified", "has_availability","instant_bookable", "has_wifi", "has_air_conditioning","has_microwave", "has_dishes_silverware","has_fridge","has_hair_dryer","has_washer")
+data2[logical] <- lapply(data2[logical],factor)
+```
+
+The possible numeric variables are:
+
+```{r}
+
+num_columns <- c("host_response_rate", "host_acceptance_rate", "host_listings_count", "host_total_listings_count", "latitude", "longitude", "accommodates", "bathroom_nb", "bedrooms", "beds", "price", "minimum_nights", "maximum_nights", "availability_30", "availability_60", "availability_90", "availability_365", "number_of_reviews", "number_of_reviews_ltm", "number_of_reviews_l30d", "review_scores_rating", "calculated_host_listings_count_entire_homes", "calculated_host_listings_count_private_rooms", "calculated_host_listings_count_shared_rooms", "reviews_per_month", "got_reviewed")
+
+```
+
+
+I will bin numeric variables using equal frequency binning:
+
+```{r}
+library(Hmisc)
+for (col in num_columns){
+data2[[col]] <- Hmisc::cut2(data2[[col]], m = nrow(data2)/5)
+}
+```
+```{r}
+table(data2$host_response_rate)
+```
+
+Now I assess their impact of the possible variables that might affect review_scores_rating:
+
+```{r}
+library(ggplot2)
+
+create_proportional_barplot <- function(data2, x_var) {
+  ggplot(data2, aes(x = !!sym(x_var), fill = review_scores_rating)) +
+    geom_bar(position = "fill") +
+    labs(x = x_var, y = "Proportion", fill = "Review Scores") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+}
+
+prospective_input_variables <- c("host_response_rate", "host_is_superhost", "property_type", "room_type", "accommodates", "bathroom_nb", "bedrooms", "beds", "price", "minimum_nights", "maximum_nights", "availability_30", "availability_60", "availability_365","has_availability", "has_wifi", "has_air_conditioning","has_microwave", "has_dishes_silverware","has_fridge","has_hair_dryer","has_washer" )
+
+for (var in prospective_input_variables) {
+  plot <- create_proportional_barplot(data2, var)
+  print(plot)
+}
+```
+
+I decide to keep all the variables because they all have predictive power. They can all differentiate the outcome, according to the plots. 
+
+```{r}
+str(data)
+```
+
+
+I create a dataframe with the variables I will use:
+```{r}
+variables_of_interest <- c("host_response_rate", "host_is_superhost", "room_type", "accommodates", "bathroom_nb", "bedrooms", "beds","price", "minimum_nights", "maximum_nights", "availability_30", "availability_60","availability_365","has_availability","has_wifi", "has_air_conditioning","has_microwave", "has_dishes_silverware","has_fridge","has_hair_dryer","has_washer", "review_scores_rating")
+
+```
+
+
+
+```{r}
+
+set.seed(60)
+train.index <- sample(c(1:dim(data2)[1]), dim(data2)[1]*0.6)
+train.df <- data2[train.index, variables_of_interest]
+valid.df <- data2[-train.index, variables_of_interest]
+
+
+```
+
+**A. The Naive Bayes Model:**
+```{r}
+library(e1071)
+nb_model <- naiveBayes(review_scores_rating ~ . , data = train.df)
+
+nb_model
+```
+
+```{r}
+levels(data2$review_scores_rating)
+```
+
+**B. Describe a fictional apartment, and use your model to predict which bin it will fall into.**
+
+```{r, warning=FALSE}
+
+fictional_apartment <- data.frame(
+  host_response_rate = 0.8,
+  host_is_superhost = TRUE,
+  room_type = "Private room",
+  accommodates= 3,
+  bathroom_nb = 1,
+  bedrooms = 3,
+  beds = 3,
+  price = 300,
+  minimum_nights = 2,
+  maximum_nights= 10,
+  availability_30 = 26,
+  availability_60= 25,
+  availability_365= 30,
+  availability_365= 30,
+  has_availability = TRUE,
+  has_wifi=TRUE,
+  has_air_conditioning=TRUE,
+  has_dishes_silverware=TRUE,
+  has_fridge=TRUE,
+  has_hair_dryer=FALSE,
+  has_washer=FALSE
+)
+
+predicted_bin <- predict(nb_model, newdata = fictional_apartment)
+
+cat("Predicted Review Scores Rating Bin:", predicted_bin, "\\n")
+
+```
+
+The model predicts this apartment will fall in bin 2 which covers Score ratings in the range: 1.0 - 4.6.
+
+**C. Assessing performance**
+The predictions in the training set have an accuracy of 0.7143, while the predictions in the validation set have an accuracy of 0.7474.This means the model is not overfitting to the training data and is making accurate predictions on unseen data. 
+
+```{r}
+train_predictions <- predict(nb_model, newdata = train.df)
+
+confusion_train <- confusionMatrix(data = train_predictions, reference = train.df$review_scores_rating)
+
+accuracy_train <- confusion_train$overall["Accuracy"]
+
+confusion_train
+```
+
+
+Prediction on Training Data:
+
+```{r}
+valid_predictions <- predict(nb_model, newdata = valid.df)
+
+confusion_valid <- confusionMatrix(valid_predictions, valid.df$review_scores_rating)
+
+confusion_valid
+```
+
+**D. Write a two-paragraph narrative that describes how you did this. In your narrative, be sure to talk about things like feature selection and assessing performance against your training data and validation data.**
+
+First, we selected the amenities that we thought had the biggest influence on rating. These are “washer”, “wifi”, “microwave”, “dishes and silverware”, mini fridge” and “hair dryer” Then we converted these amenities into variables using the grepl() function. Second, we converted the character variables and the amenities logical variables into factors. For feature selection, we focused on the variables we thought had the greatest influence on rating and we assessed their impact with proportional barplots. According to the barplots, all the variables have high predictive power, as they can all differentiate the rating outcome. Therefore, we decided to keep them all in the model. 
+
+After partitioning the data, we run the model and created a fictional apartment which was predicted to fall in bin number 2 which is the one with Score ratings in the range: 1.0 - 4.6. Finally, we assessed the performance making predictions on the training set and the validation set by using a confusion matrix. The predictions in the training set have an accuracy of 0.7143, while the predictions in the validation set have an accuracy of 0.7474. This means the model has a high predictive power. It is not overfitting to the training data and is making accurate predictions on unseen data.
+
+
+
+

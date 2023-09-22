@@ -1,0 +1,522 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+---
+
+**Step II: Prediction**
+
+**I.**
+
+```{r}
+library(tidyverse)
+library(forecast)
+```
+
+```{r}
+hk1 <- read.csv("hong_kong_cleaned.csv", header = TRUE)
+```
+
+### A. Process description
+
+*Step 1: Data exploration and partitioning*
+
+Before partitioning, we will simply do some variable adjustment to facilitate the analysis to address potential issues we noticed that could end up in the training set and mess up our predictive model without us noticing:
+
+### Removing outliers 
+
+First we remove some outliers using the 99% quantile
+
+```{r}
+library(tidyverse)
+hk <- filter(hk1, hk1$price < quantile(hk1$price, 0.99))
+hk <- filter(hk, hk$minimum_nights < quantile(hk1$minimum_nights, 0.99))
+hk <- filter(hk, hk$beds < quantile(hk1$beds, 0.99))
+hk <- filter(hk, hk$number_of_reviews < quantile(hk1$number_of_reviews, 0.99))
+hk <- filter(hk, hk$host_listings_count < quantile(hk1$host_listings_count, 0.99))
+hk <- filter(hk, hk$reviews_per_month < quantile(hk1$reviews_per_month, 0.99))
+```
+
+
+### Adjusting some variables
+
+First, let's adjust the *"bathroom_type"* variable.
+
+
+
+```{r}
+hk <- hk %>%
+  mutate(bathroom_type = ifelse(bathroom_type == "half-bath", "shared", bathroom_type))
+```
+
+
+We simply needed to adjust it because the half-bath has a unique value in the category "half-bath", which could cause overfitting issues and overall prediction issues. Since a half-bath usually mean that the shower is shared, we will assign it to the "private" category which it looks closer to.
+
+
+Second, let's adjust the *"room_type"* variable:
+
+
+```{r}
+hk <- hk %>%
+  mutate(room_type = ifelse(room_type == "Hotel room", "Private room", room_type))
+```
+
+
+We noticed the same issue for this variable, which is why we will assign the "Hotel room" unique data point to "Private room" since it seems the most suitable.
+
+
+
+Let's now move on.
+
+Before any further analysis, let's partition the data.
+
+```{r}
+set.seed(699)
+
+train.index <- sample(c(1:nrow(hk)), nrow(hk)*0.6)
+train.df <- hk[train.index, ]
+valid.df <- hk[-train.index, ]
+```
+
+*Step 2: Variable selection*
+
+First, let's distinguish between numeric and categorical variables since they will not receive the exact same treatement.
+
+*Categorical variables:*
+
+```{r}
+categ_var <-  c("description","X","neighborhood_overview", "host_id", "host_since","host_location", "host_response_time","host_is_superhost","host_neighbourhood","host_verifications","host_has_profile_pic", "host_identity_verified", "property_type",
+              "room_type", "bathroom_type", "amenities", "amenities_categ","has_availability",
+              "instant_bookable","got_reviewed")
+```
+
+*Firstly, let's remove categorical variable with entirely unique values or redundant arbitrary values.*
+
+
+These variables don't have any pattern, so we need to remove them from the start.
+
+In particular, *"X"* appears to be an arbitrary index variable. 
+
+*"host_id"* also represents an arbitrary number, unique for each host, that could have been transformed to be indicative of the number of host listings but we already have this information in other variables, which is why it is not needed.
+
+```{r}
+train.df <- train.df %>% select(-X,-host_id)
+valid.df <- valid.df %>% select(-X,-host_id)
+```
+
+
+*Secondly, let's remove redundant, overly specific and irrelevant categorical variables.*
+
+```{r}
+categ_var2 <-  c("host_response_time","host_is_superhost","host_has_profile_pic", "host_identity_verified",
+              "room_type", "bathroom_type", "has_availability",
+              "instant_bookable","got_reviewed")
+```
+
+
+*"neighborhood_overview"*: most rentals don't have an overview. Moreover, by nature, it seems unique to a listing (higher counts than one might correspond to listings from the same host maybe). 
+It is impossible to generalize since it is ultra specific textual data, that contains information that can be provided by other variables (e.g.: room type) and contains unnecessary details details on the Wai Chai neighborhood which is our only focus here anyways. 
+It  could not work in our MLR model so we will remove them.
+
+* *"description"*: similar situation.
+
+
+
+* *"host_verifications"*:  does not seem to add much  (level of detail seems unnecessarily specfic -> every host provides different means of contact that do not seem meaningful in the context of our model to predict pricing
+
+Also, does not compare to the more generalized binary variable *"host_identity_verified"* that acts as a more official safety and trustworthiness proof (throught verifying government IDs, email addresses, and phone numbers).
+
+The different verification types (email, phone, work email) don't have an obvious direct relationship with price. In fact, it could be prone to overfitting by the model since the relationship is vague.It would also unnecessary noise and collinearity and would be redundant since other indicators of host reputation are kept.
+
+
+* Remove *"host_has_profile_pic"* -> ? still hesitant about it.
+
+Very few "No" with higher prices (see box plotthe count below show that this variable scam?
+
+******************
+
+  
+* Remove *"property_type"* and keep *"room_type"*
+
+
+
+```{r}
+hk %>%
+  group_by(hk$property_type) %>%
+  summarize(count = n()) %>%
+  arrange(desc(count))
+```
+
+```{r}
+unique(train.df$property_type)
+```
+
+It has too many categories and room type keeps the main information from property type.
+
+Therefore, we consider this information loss negligible compared to the issues the variable could cause, and *"room_type"* actually looks like it contains the appropriate amount of information without needing to bin it further.
+
+* Keep *"bathroom_type"*
+
+
+Since it is common for an accomodation - especially on Airbnb during shorter stays - to have a shared room and shared bathroom or a private room and a shared bathroom, the two do not correlate that much, and utilizing our domain knowledge, it is a popular option when renting in a shared house for example since it its usually less expensive than having  a private bathroom. It is relevant to the model and we expect it to have a relationship with price, which is why we decide to keep it.
+
+
+* Keep *"has_availability"*
+
+```{r}
+train.df %>%
+  group_by(train.df$has_availability) %>%
+  summarize(count = n()) %>%
+  arrange(desc(count))
+```
+
+* Keep *"instant_bookable"*
+
+```{r}
+train.df %>%
+  group_by(train.df$instant_bookable) %>%
+  summarize(count = n()) %>%
+  arrange(desc(count))
+```
+
+* Keep *"got_reviewed"*
+
+```{r}
+train.df %>%
+  group_by(train.df$got_reviewed) %>%
+  summarize(count = n()) %>%
+  arrange(desc(count))
+```
+
+We expect this variable to likely have a strong relationship, a high correlation with the three numeric variables *"number_of_reviews"*, *reviews_ltm* and *"reviews_l30d"*, because it the number of reviews being 0 would correspond to its outcome "FALSE", and any other number would  correspond to its outcome "TRUE", which is why we will only keep *"got_reviewed"* among them.
+Since it is a binary classification, it loses nuance/information on the demand/popularity, but this information is already available in the *"availability_ "* variables.
+
+* Remove *"host_location"* and *"host_neighborhood"*
+
+The model is only meant to focus on Hong Kong listings from the Wan Chai neighborhood, so the location variation is not very relevant and would likely have minimal impact on price variations (compared to more specific location data within the neighborhood).
+
+
+
+For *"host_location"*, the majority is Hong Kong, with some very few specific abroad locations. Even if we binned it into two outcome classes "Hong Kong" and "abroad", there would still be a big risk of overfitting since the model would likely not be able to detect pattern to generalize with the limited information available in the "abroad" class. To avoid any risk for a variable that logically does not seem to closely correlate to pricing, we also will remove it. 
+
+* Remove *"got_reviewed"*: 
+
+As shown below, it seems that this variable is likely to be highly correlated with the numeric review scores variables, that account in most cases for no review by assigning a 0 rating, and all other ratings correspond to a rating as shown below while giving more useful detail on the perceived value of the listing based on the customer satisfaction.
+
+```{r}
+ggplot(train.df, aes(x=got_reviewed, y=review_scores_rating)) + geom_point() + geom_smooth(method="lm", se=FALSE, color="green")
+```
+
+* Remove *"amenities"
+
+We would have to dive it into too many categories and it is exploited in the naive bayes model later on.
+
+
+
+*Numeric variables*
+
+```{r}
+num_var <- c("host_response_rate", "host_acceptance_rate","host_listings_count",
+             "host_total_listings_count",
+"latitude", "longitude", "accommodates", "bathroom_nb", "bedrooms", "beds",
+"minimum_nights", "maximum_nights", "availability_30", "availability_60", "availability_90",
+"availability_365", "number_of_reviews", "number_of_reviews_ltm", "number_of_reviews_l30d",
+"review_scores_rating", "review_scores_accuracy", "review_scores_cleanliness",
+"review_scores_checkin", "review_scores_communication", "review_scores_location",
+"review_scores_value", "calculated_host_listings_count_entire_homes",
+"calculated_host_listings_count_private_rooms", "calculated_host_listings_count_shared_rooms",
+"reviews_per_month")
+```
+
+*Remove highly correlated numeric variables*
+
+Some variables, by definition and mathemathically, appear to be highly correlated.
+
+In order to avoid a potential multicolinearity issue and to make sure not to forget to remove a variable from a very high correlation pair, I built a correlation table in R that depicts the correlations among all of the numerical variables that we might use as predictors.
+
+```{r}
+cm<- cor(hk[num_var])
+```
+
+Identify correlations higher or equal than 0.65 (our selected treshold since there are a lot of variables), while not including correlations equal to one corresponding to the perfect correlation of a variable with itself
+
+```{r}
+inds <- which(cm >= 0.65 & cm < 1, arr.ind = TRUE)
+
+# Extract variable names
+vars <- rownames(cm)
+
+# Create dataframe with pairs respecting the correlation constraint
+pairs <- data.frame(var1 = vars[inds[,1]],
+                    var2 = vars[inds[,2]],
+                    corr = cm[inds])
+
+# Remove duplicate rows 
+pairs <- pairs[!duplicated(t(apply(pairs, 1, sort))),]
+
+print(pairs[order(-pairs$corr),])
+```
+
+
+Unsurprisingly, a lot of variables are redundant and we think it is likely to assume they would cause multicolinearity issues.
+
+* Remove all *"review_scores"* variables
+
+"review_scores_rating", "review_scores_accuracy", "review_scores_cleanliness", "review_scores_checkin", "review_scores_communication", "review_scores_location" and "review_scores_value"
+
+Based on Aribnb ratings, similar to Uber -> 5 stars are very frequent, and a lot of customers rate five stars for all categories when they are satisfied.
+the categorical variable "*got_reviewed*" is more relevant here, as explained further below.                             
+
+
+* Similarly, remove all *"number_of_reviews_"* variables
+
+Similarly and additionally for *"number_of_reviews", "number_of_reviews_ltm" and "number_of_reviews_l30d"*, which have relatively high correlation coefficients with the *"review_score_"* variables. 
+
+We can argue that is is also redundant in the sense that it's another indicator of occupancy/demand signals like the *"availaility_"* variables.
+
+
+
+* *"availability_30", "availability_60", "availability_90" and "availability_365"*: we will only keep *"availability_365"*
+
+
+* Only keep *"host_listings_count"*
+
+Among *host_listings_count,host_total_listings_count,calculated_host_listings_count_entire_homes,calculated_host_listings_count_shared_rooms and calculated_host_listings_count_private_rooms*
+
+
+We will only keep the variable *"host_listings_count"*, since it provides an overall grouping and the detailed subdivision counts (variables starting by "calculated_host_listings_count_") doesn't seem relevant for our model.
+
+* Keep *"accomodates"* and *"bedrooms"*, remove *"beds"*
+
+Since "beds" and "bedrooms" have a high correlation coefficient according to the correlation table, and bedrooms has a lower correlation with accomodates (which doesn't have a high correlation with any other variable), we decided to only remove the most correlated variable: "beds" to avoid multicolinearity.
+
+
+
+
+*Logarithmic transformation of the response variable price*
+
+Since we have identified in the data cleaning step that the price variable had a significant number of outliers, let's also try creating a model using log(price) to see if it helps mitigate the impact of these extreme outliers that can skew the results of our model. 
+The logarithmic transformation should be able to shrink the effect of extreme values, making the regression model more robust.
+
+```{r}
+train.df$log_price = log(train.df$price)
+valid.df$log_price = log(valid.df$price)
+```
+
+This will also be needed for visualization purposes since otherwise, the distribution is unreadable since the plots appear completely "skewed" or "squeezed" towards the bottom due to the presence of outliers in the price data. 
+
+*Remove variables with less significant predictive power in relation to the variable price*
+
+
+*Visualizations to further assess relevancy*
+
+To further assess relevancy, we will make visualizations for both categorical and numeric variables not excluded from the model yet and look into their relationship with the price variable.
+
+
+*Categorical variables*
+
+
+* Remove *"host_since"*
+
+*"host_since"* has a unique specific date value for each host, which would not be viable in the model by itself. 
+We considered converting it to proper dates format and only extracting the year, however, we assume that the host experience in terms of years, which most likely correspond to the date of registration as an Airbnb host, is less relevant than the Superhost status for example when accounting for the experience, recognition and reputation of a host.
+This is why to avoid a clear risk of overfitting and to avoid adding a less relevant variable that does not show a clear relationship with price, we chose to remove host_since. When we look at the box plots, it seems that even collapsing the levels or grouping them would not be relevant as a predictor for price.
+
+```{r}
+library(lubridate)
+```
+
+```{r}
+train.df$host_since_y<-ymd(train.df$host_since)
+```
+
+```{r}
+train.df <- train.df %>%
+  mutate(host_since_y = factor(year(host_since)))
+```
+
+```{r}
+ggplot(train.df, aes(x = host_since_y, y = log_price)) +
+  geom_boxplot()
+```
+
+
+```{r}
+train.df <- train.df %>% select(-host_since_y)
+```
+
+```{r}
+ggplot(train.df, aes(x = host_is_superhost, y = log_price)) +
+  geom_boxplot()
+```
+
+```{r}
+ggplot(train.df, aes(x = host_identity_verified, y = log_price)) +
+  geom_boxplot()
+```
+
+```{r}
+ggplot(train.df, aes(x = room_type, y = log_price)) +
+  geom_boxplot()
+```
+
+We can clearly see the price is influenced by those categories.
+We should keep them, we will try a model that can remove the unnecessary ones later
+
+
+
+
+*Numeric variables*
+
+
+```{r}
+ggplot(train.df, aes(x=host_listings_count, y=log_price)) + geom_point() + geom_smooth(method="lm", se=FALSE, color="green")
+```
+
+```{r}
+ggplot(train.df, aes(x=latitude, y=log_price)) + geom_point() + geom_smooth(method="lm", se=FALSE, color="green")
+```
+
+```{r}
+ggplot(train.df, aes(x=accommodates, y=log_price)) + geom_point() + geom_smooth(method="lm", se=FALSE, color="green")
+```
+
+
+*Step 3: Data preparation*
+              
+
+              
+```{r}
+sapply(train.df[categ_var2], is.factor)
+```
+
+```{r}
+train.df[categ_var] <- lapply(train.df[categ_var2], as.factor)
+valid.df[categ_var] <- lapply(valid.df[categ_var2], as.factor)
+```
+
+```{r}
+sapply(train.df[categ_var2], is.factor)
+```
+
+Let's now clean up our training and validation sets, by removing the eliminated variables from this step, additionally to "X" and "host_id".
+
+```{r}
+train.df <- train.df %>% select( -description,-neighborhood_overview,-host_since,-host_neighbourhood,
+                                 -host_location,-property_type,-amenities,-host_total_listings_count,
+                                 -host_verifications,-availability_30,-availability_60,-availability_90,
+                                 -number_of_reviews,-number_of_reviews_ltm,-number_of_reviews_l30d,
+                                 -review_scores_rating,-review_scores_accuracy,
+                                 -review_scores_cleanliness,-review_scores_checkin,
+                                 -review_scores_communication,-review_scores_location,
+                                 -review_scores_value,-calculated_host_listings_count_entire_homes,
+                                 -calculated_host_listings_count_private_rooms,
+                                 -calculated_host_listings_count_shared_rooms,-reviews_per_month,-beds, -X,
+                                 -log_price, -host_id, -amenities_categ)
+```
+
+```{r}
+valid.df <- valid.df %>% select( -description,-neighborhood_overview,-host_since,-host_neighbourhood,
+                                 -host_location,-property_type,-amenities,-host_total_listings_count,
+                                 -host_verifications,-availability_30,-availability_60,-availability_90,
+                                 -number_of_reviews,-number_of_reviews_ltm,-number_of_reviews_l30d,
+                                 -review_scores_rating,-review_scores_accuracy,
+                                 -review_scores_cleanliness,-review_scores_checkin,
+                                 -review_scores_communication,-review_scores_location,
+                                 -review_scores_value,-calculated_host_listings_count_entire_homes,
+                                 -calculated_host_listings_count_private_rooms,
+                                 -calculated_host_listings_count_shared_rooms,-reviews_per_month,-beds, -X,
+                                 -log_price, -host_id, -amenities_categ)
+```
+
+
+
+*Step 4: Model building*
+
+
+*MLR Model with price as a response variable*
+
+Using backward elimination, build the mutliple linear regression model with the data in our training set, to predict the price variable.
+
+```{r}
+library(stats)
+```
+
+### B
+
+```{r}
+mlr_model<-lm(price ~ ., data = train.df)
+mlr_model.step <- step(mlr_model, direction = "backward")
+```
+
+*Summary of the MLR model with price*
+
+```{r}
+summary(mlr_model.step)
+```
+
+Now let us try with log it could improve the model we've seen previously that
+on visualizations the relationship is more linear with log price.
+
+
+*MLR Model with log(price) as a response variable*
+
+```{r}
+log_mlr_model<-lm(log(price) ~ ., data = train.df)
+log_mlr_model.step <- step(log_mlr_model, direction = "backward")
+summary(log_mlr_model.step)
+```
+
+The model with log price has higher adjusted r-squared so we keep this last one.
+
+Its coefficients are written in the estimates. The equation is the following:
+
+Ŷ= a+ b1 x X1 + b2 x X2 +...+ bp x Xp
+
+where Ŷ is the prediction, a is the intercept and b1 to bp are the coefficients in the estimate and X1 to Xp are the inputs of the predictors.
+
+
+### C. Analysis of other model metrics
+
+After the using the log price instead of price and backwards elimination our adjusted R squared improved by over 0.2 it is now 0.78.
+
+This could be explained by the fact that the distribution of the price is very skewed which would not be surprising because we have many outliers as seen previously.
+It could also be explained by the fact that the price became more linear after the log transformation.
+
+Let us test the model with the validation set now to evaluate its performance.
+We have to transform the price of the validation to log first.
+
+```{r}
+valid.df$price <- sapply(valid.df$price, log)
+library(rsq)
+library(Metrics)
+predicted_values <- predict(log_mlr_model.step, newdata = valid.df)
+sse <- sum((valid.df$price - predicted_values)^2)
+sst <- sum((valid.df$price - mean(valid.df$price))^2)
+r_sq <- 1 - (sse/sst)
+r_sq
+```
+
+We get a R_squared of 0.74 which is close to the traning data set. 
+This means the model is not overfitted.
+Finally let us look at the RMSE and min and max residuals. We have to bring back the values without the log transformation to be able to interprete it.
+
+```{r}
+valid.df$price <- sapply(valid.df$price,exp)
+predicted_values <- sapply(predicted_values,exp)
+  
+RMSE <- rmse(valid.df$price, predicted_values)
+Min_Residual <- min(valid.df$price-predicted_values)
+Max_Residual <- max(valid.df$price-predicted_values)
+
+RMSE
+Min_Residual
+Max_Residual
+```
+
+The RMSE is of 388, on average the models makes a mistake of 388 which is consiquent considering that most apartments have a price around 600.
+
+The minimum residual is around -2000 and maximum residual 2000 this represents the highest mistake the model can make. 
+
+Based on those performance metrics we can conclude that the model is fair at predicting price but it still makes mistakes by a margin.
