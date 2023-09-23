@@ -1,35 +1,16 @@
----
-title: "Step 1_Data Preparation & Exploration"
-author: "Trista"
-date: "2023-08-13"
-output: html_document
----
 
-```{r}
 library(tidyverse)
 library(caret)
 
-#1. set the working directory and Read CSV files
-setwd("C:/Users/Trista Hu/OneDrive/BU ABA Study Summer/AD699 Data Mining Summer/Team Project")
-
-# Import the cleaned csv file for further analysis 
+#Read CSV files
+setwd("C:/Users/Trista Hu/OneDrive/HK_Airbnb")
 df <- read_csv("hong_kong_cleaned.csv")
 
-```
-
-
-```{r}
-#II. Summary Statistics
+#Summary Statistics
 str(df)
-
-```
-```{r}
-# five summaries of host_total_listings_count
 df.summary <- summary(df$host_total_listings_count)
 df.summary
-```
 
-```{r}
 # five summaries grouped by room type
 grouped_summary <- df %>%
   group_by(room_type) %>%
@@ -41,9 +22,7 @@ grouped_summary <- df %>%
     sd_count = sd(host_total_listings_count)
   )
 grouped_summary
-```
 
-```{r}
 library(ggplot2)
 # discover the relationship between host_total_listings_count and price with a scatterplot
 scatter_plot <- ggplot(df, aes(x = host_total_listings_count, y = price)) +
@@ -51,10 +30,9 @@ scatter_plot <- ggplot(df, aes(x = host_total_listings_count, y = price)) +
   labs(x = "Host Total Listings Count", y = "Price") +
   ggtitle("Scatterplot of Host Total Listings Count vs. Price")
 print(scatter_plot)
-```
+#The scatterplot of "Price" against "host_total_listings_count" reveals that there is no clear linear relationship between the two variables. Prices for single listings vary widely, ranging from 0 to 10000, with 50000 as the highest. Most listings are priced below 100, while those with more than 100 listings tend to have less price variation. This could because the competitive nature of the Hong Kong Airbnb market can drive hosts to differentiate their offerings based on investment levels. 
 
-```{r}
-# Check if the host_total_listings_count is the sum of individual counts
+# Check relationship between variables: if the host_total_listings_count is the sum of individual counts
 df2<-df
 df2$check <- ifelse(df2$host_total_listings_count ==
                        df2$calculated_host_listings_count_entire_homes +
@@ -62,35 +40,16 @@ df2$check <- ifelse(df2$host_total_listings_count ==
                        df2$calculated_host_listings_count_shared_rooms,
                      "Equal", "Not Equal")
 table(df2$check)
+# So, the host_total_listings_count does not always equal the sum of individual calculated host counts
 
-```
+# The dataset reveals a wide-ranging distribution of listings, with a minimum of 1 listing and a maximum of 846 listings. The median value of 182 signifies that a significant portion of hosts offer 182 or fewer listings, while a slightly right-skewed distribution is indicated by a mean value of 235.6, suggesting that a few hosts present a notably higher number of listings. The analysis of host_total_listings_count in relation to different room_type categories provides valuable insights into the diversity of accommodations offered by hosts. Distinct patterns emerge when considering specific room_type categories. The consistent mean count of 65 for "Hotel room" listings implies that a single host exclusively offers this type of accommodation. "Private room" listings, with a higher mean count of approximately 288.9, point toward a diverse array of private room selections. Meanwhile, the moderate mean count of about 153.5 for "Shared room" listings suggests a moderate offering of shared accommodations. 
 
+# "Entire home/apt" listings exhibit the highest standard deviation (sd_count) of approximately 276.18. This elevated standard deviation suggests a notable degree of variability in the host_total_listings_count within this room type. The mean count of around 158.51 implies a substantial average number of entire homes or apartments being offered by hosts. The median count of 13.5, however, indicates that a significant proportion of hosts within this category have the relatively lower number of listings – the lowest among all types. The range from a minimum count of 1 to a maximum of 846 listings underscores the diversity in offerings, while the larger standard deviation points to a wider spread of listing counts, possibly reflecting varying levels of investment and commitment among hosts in Hong Kong. 
 
-```{r}
-# check on the difference 
-df2$difference <- df2$host_total_listings_count-
-                      (df2$calculated_host_listings_count_entire_homes +
-                      df2$calculated_host_listings_count_private_rooms +
-                      df2$calculated_host_listings_count_shared_rooms)
-# Display the difference
-table(df2$difference)
-# Based on the calculation, The host_total_listings_count does not always equal the sum of individual calculated host counts
-```
-The dataset reveals a wide-ranging distribution of listings, with a minimum of 1 listing and a maximum of 846 listings. The median value of 182 signifies that a significant portion of hosts offer 182 or fewer listings, while a slightly right-skewed distribution is indicated by a mean value of 235.6, suggesting that a few hosts present a notably higher number of listings. The analysis of host_total_listings_count in relation to different room_type categories provides valuable insights into the diversity of accommodations offered by hosts. Distinct patterns emerge when considering specific room_type categories. The consistent mean count of 65 for "Hotel room" listings implies that a single host exclusively offers this type of accommodation. "Private room" listings, with a higher mean count of approximately 288.9, point toward a diverse array of private room selections. Meanwhile, the moderate mean count of about 153.5 for "Shared room" listings suggests a moderate offering of shared accommodations. The summary reveals the variety of strategies employed by hosts.  While a substantial number of hosts offer a moderate number of listings - likely individual owned, a few hosts stand out by offering a notably higher count. These hosts may include property management companies, investors with a large number of properties, capitalizing on the demand for accommodations in Hong Kong.
-
-"Entire home/apt" listings exhibit the highest standard deviation (sd_count) of approximately 276.18. This elevated standard deviation suggests a notable degree of variability in the host_total_listings_count within this room type. The mean count of around 158.51 implies a substantial average number of entire homes or apartments being offered by hosts. The median count of 13.5, however, indicates that a significant proportion of hosts within this category have the relatively lower number of listings – the lowest among all types. The range from a minimum count of 1 to a maximum of 846 listings underscores the diversity in offerings, while the larger standard deviation points to a wider spread of listing counts, possibly reflecting varying levels of investment and commitment among hosts in Hong Kong. 
-
-The scatterplot of "Price" against "host_total_listings_count" reveals that there is no clear linear relationship between the two variables. Prices for single listings vary widely, ranging from 0 to 10000, with 50000 as the highest. Most listings are priced below 100, while those with more than 100 listings tend to have less price variation. This could because the competitive nature of the Hong Kong Airbnb market can drive hosts to differentiate their offerings based on investment levels. Those with higher investments may provide distinctive amenities, meticulously designed spaces, and supplementary services to cater to guests seeking a luxury experience. Conversely, hosts with a limited room offering seem to exhibit a broad price range, accommodating customers with both basic needs and more extravagant preferences. This intricate interplay between investment decisions, market competition, and diverse customer demands contributes to the observed variations in listing counts and pricing strategies among "Entire home/apt" listings in the Hong Kong Airbnb market.
-
-
-```{r}
 #III. Data Visualization 
 # check on the five summaries on variable "price"
 summary(df$price)
-```
 
-
-```{r}
 #understand the variable
 summary_perroomtype <- df %>%
   group_by(room_type) %>%
@@ -102,11 +61,8 @@ summary_perroomtype <- df %>%
     sd = sd(price)
   )
 summary_perroomtype
-```
 
-
-```{r}
-#1. histogram of price
+#histogram of price
 # Calculate outlier boundaries using the IQR method
 Q1 <- quantile(df$price, 0.25, na.rm = TRUE)
 Q3 <- quantile(df$price, 0.75, na.rm = TRUE)
@@ -125,11 +81,8 @@ df.histogram <- ggplot(df_filtered, aes(x = price)) +
 
 # Print the plot
 print(df.histogram)
-```
 
-
-```{r}
-# 2. Bar Plot of Property Type and Average Price (Descending)
+# Bar Plot of Property Type and Average Price (Descending)
 # Filter and summarize the data
 df.barplot <- df %>%
   group_by(property_type) %>%
@@ -148,11 +101,7 @@ df.barplot %>%
         axis.text.y = element_text(size = 8)) +
   geom_text(aes(label = scales::dollar(avg_price, prefix = "$")), hjust = -0.1, size = 3, color = 'black')
 
-```
-
-
-```{r}
-# 3. bar chart of average prices by room type
+# bar chart of average prices by room type
 # Calculate the average cost for each room type
 avg_price_by_room <- df %>%
   group_by(room_type) %>%
@@ -163,27 +112,16 @@ df.bar.roomtype <- ggplot(avg_price_by_room, aes(x = room_type, y = avg_price, f
   geom_bar(stat = "identity", position = "dodge") +
   labs(x = "Room Type", y = "Average Price", title = "Average Price by Room Type") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels for better readability
-
-# Print the plot
 print(df.bar.roomtype)
-```
 
-
-```{r}
-# 4. Boxplot of Price by Room Type (with outliers)
+# Boxplot of Price by Room Type (with outliers)
 df.p_boxplot <- ggplot(df, aes(x = room_type, y = price, fill = room_type)) +
   geom_boxplot() +
   labs(x = "Room Type", y = "Price", title = "Boxplot of Price by Room Type")
-
-# Print the plot
 print(df.p_boxplot)
 
 # seeing a clear outlier, need to be removed
 
-```
-
-
-```{r}
 # Find the index of the outlier in the "shared_room" group
 outlier_index <- which(df$room_type == "Shared room" & df$price > 40000)
 outlier_index
@@ -191,11 +129,6 @@ outlier_index
 df <- df[-outlier_index, ]
 
 str(df) # only one observation is removed
-
-```
-
-
-```{r}
 
 # update Boxplot of Price by Room Type (without outliers)
 df.p_boxplot2 <- ggplot(df, aes(x = room_type, y = price, fill = room_type)) +
@@ -205,12 +138,7 @@ df.p_boxplot2 <- ggplot(df, aes(x = room_type, y = price, fill = room_type)) +
 # Print the plot
 print(df.p_boxplot2)
 
-
-```
-
-
-```{r}
-#5. Distribution of Prices by Room Type (Without Outliers)
+# Distribution of Prices by Room Type (Without Outliers)
 # Create a violin plot of price by room type without outliers
 plot_violin <- ggplot(df, aes(x = room_type, y = price)) +
   geom_violin(scale = "width", fill = "lightblue") +
@@ -218,21 +146,14 @@ plot_violin <- ggplot(df, aes(x = room_type, y = price)) +
 
 # Print the violin plot
 print(plot_violin)
-```
 
-
-```{r}
-#6. facet-Scatter Plot: Review Score vs. Price by Room Type"
+#facet-Scatter Plot: Review Score vs. Price by Room Type"
 plot_facet <- ggplot(df, aes(x = review_scores_rating, y = price, color = review_scores_rating)) +
   geom_point() +
   labs(x = "Review Score", y = "Price", title = "Facet: Review Score vs. Price by Room Type") +
   coord_cartesian(ylim = c(0, 15000)) +  # Set x and y-axis limits
   facet_wrap(~ room_type, ncol = 2)  # Facet by room type, 2 columns
-
-# Print the faceted scatter plot
 print(plot_facet)
-```
-
 
 Upon analyzing the Histogram of Price, it becomes evident that a significant concentration of prices lies below 250. Across all property types, "Entire home/apt" listings command the highest average price, exceeding 7,000, followed by "Room in boutique hotel" at 6,700. The considerable difference between the top two and the subsequent "Tiny home" highlights a substantial pricing variation, with "Entire home/apt" prices approximately triple those of "Tiny home". This fit our understanding of the HK market. The concentration of prices below 250 in the Histogram of Price reflects a common price range that attracts a significant portion of potential guests. The higher average price commanded by "Entire home/apt" and "boutique hotel room" listings suggests that these accommodations offer a premium experience and are positioned as a luxurious option. The detailed categorization of property types indicates the diversity in property types, and the different level of average price highlights the range of options available to travelers, from opulent entire homes to more budget-friendly tiny homes.
 
@@ -240,9 +161,7 @@ Moreover, the box plots and violin distribution charts reveal distinctions in pr
 
 Interestingly, based on the facet plot, review scores do not exhibit a strong correlation with high prices, as lower-priced properties can still achieve high guest satisfaction. This observation suggests that factors beyond pricing significantly influence guest experiences, underscoring the intricate interplay between pricing and guest sentiment. This could lead to consideration on the significance of factors such as cleanliness, communication, and overall experience in shaping guest reviews in the HK market. 
 
-
-```{r}
-#IV. Mapping
+#Mapping
 library(leaflet)
 # Create a custom icon
 custom_icon <- makeIcon(iconUrl = "custom_icon.png", iconWidth = 20, iconHeight = 20)
@@ -258,16 +177,11 @@ neighborhood_map2 <- leaflet(data = df) %>%
                    popup = paste("Room Type: ", df$room_type)) %>%
   addMarkers(lng = mean(df$longitude), lat = mean(df$latitude),
              icon = custom_icon)
-
-# Print the map
 neighborhood_map2
-
-```
 
 Wan Chai is a district situated on the northern shore of Hong Kong Island, nestled between the Central and Causeway Bay districts. It features a blend of commercial, residential, and entertainment zones, with accommodations predominantly clustered in specific regions. The color-coded room type distribution indicates that Private rooms are concentrated in the northern expanse of Wan Chai, with a few near the HK Cricket Club, offering convenient access to both the northern and southern parts of the district, including local attractions and activities. This arrangement is likely influenced by the proximity to renowned attractions and activities. On the other hand, Entire house/apartment accommodations are positioned more towards the outskirts of Wan Chai, possibly due to their spatial requirements, while still maintaining proximity to the town center. The distribution of Shared room types disperse throughout the area.
 
-```{r}
-#V. Wordcloud
+#Wordcloud anaylsis on "neighborhood_overview"
 library(tidytext)
 library(tm)
 
@@ -283,11 +197,6 @@ num_tidy <- tidy_neigh %>% count(word, sort = TRUE) %>%
   top_n(10)
 num_tidy
 
-```
-
-
-```{r}
-
 tidy_text <- neigh_over %>% unnest_tokens(bigram, neighborhood_overview,
                                           token = "ngrams", n = 2)
 tidy_neigh_bigrams <- tidy_text %>%
@@ -298,16 +207,10 @@ tidy_neigh_bigrams <- tidy_text %>%
   unite(bigram, word1, word2, sep = " ")
 tidy_neigh_bigrams
 
-```
-
-
-```{r}
 library(wordcloud2)
 #word cloud for unigrams
 wordcloud2(tidy_neigh %>% count(word, sort = TRUE) %>% filter(n>5))
-```
 
-```{r}
 #word cloud for bigrams
 wordcloud2(tidy_neigh_bigrams %>% filter(n<240)) 
 ```
